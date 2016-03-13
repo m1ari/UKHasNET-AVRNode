@@ -1,10 +1,10 @@
 ## General Flags
-PROJECT = blinky
+PROJECT = gps-isr-test
 #MCU = atmega32u2
 #MCU = atmega168a
 MCU = atmega164p
 ## Objects that must be built in order to link
-OBJECTS = blinky.o
+OBJECTS = gps-isr-test.o
 
 TARGET = $(PROJECT).elf
 
