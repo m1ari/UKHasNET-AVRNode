@@ -1,0 +1,3 @@
+[submodule "ukhasnet-rfm69"]
+	path = ukhasnet-rfm69
+	url = git@github.com:UKHASnet/ukhasnet-rfm69.git
