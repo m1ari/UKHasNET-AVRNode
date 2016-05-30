@@ -12,6 +12,7 @@
  * Red LED
  */ 
 
+#include <alloca.h>
 #include <avr/io.h>
 #include <avr/interrupt.h>
 //#include <avr/wdt.h>
@@ -21,8 +22,11 @@
 #include <stdlib.h>
 #include "ukhasnet-rfm69.h"		// UKHasnet RFM69 library
 
-#define _CONSOLE
-#define _GPS
+#define _CONSOLE			// Enable code for UART0 (Console)
+#define _CONSOLE_ECHO		// Enable code for Console echo - may cause lockups
+#define _GPS				// Enable code for UART1 (GPS)
+#define NODENAME "MA4"
+#define RFM_POWER               20
 
 struct serial_t {
 	char *tx_buff;
@@ -33,12 +37,13 @@ struct serial_t {
 	uint8_t error;
 };
 
+// Error states so we can handle ISR errors in the main loop
 #define ERR_TX_OVERFLOW 0x01
 #define ERR_RX_OVERFLOW 0x02
 #define ERR_RX_NOTREADY 0x04
 
-#ifdef _CONSOLE
 // Console Serial Port Setup
+#ifdef _CONSOLE
 #define SERIAL_CONSOLE_BAUD 19200		// define baud
 #define SERIAL_CONSOLE_BAUDRATE ((F_CPU)/(SERIAL_CONSOLE_BAUD*16UL)-1)	// set baud rate value for UBRR
 #define SERIAL_CONSOLE_TXBUF 90			// Size of Buffer for Serial Send
@@ -56,7 +61,7 @@ struct serial_t serial_gps;
 #endif
 
 #define BLINK_FREQ	1		// How often to Blink the LED (seconds)
-#define TX_FREQ		5		// How often to transmit (seconds)
+#define TX_FREQ		65		// How often to transmit (seconds)
 #define RX_DELAY	1		// Delay in main loop (ms)
 
 const char latitude[]="50.94404";
@@ -73,26 +78,15 @@ struct location_t {
 };
 */
 
-/* Send data to the Serial Console */
-// TODO Can we make this generic so it can be used with both USARTs ?
-void console_send(const char* tx){
-	if (SERIAL_CONSOLE_TXBUF < strlen(tx)){
-		serial_console.error |= ERR_TX_OVERFLOW;
-		// Error
-	} else {
- 
-		// Wait until the the buffer is free
-		// TODO, this causes issues if console_send is called from an ISR
-		// If we changed to a circular buffer we might not need to wait if there's space
-		while (serial_console.tx_pos != 0)
-			_delay_ms(1);
+// Function Prototypes
+void serial_rx_reset(struct serial_t *serial, uint8_t bufflen);
 
-		strncpy(serial_console.tx_buff,tx,SERIAL_CONSOLE_TXBUF);
-		UCSR0B |= (1<<UDRIE0);		// Enable Transmit interrupt
-	}
-}
-	
+#ifdef _CONSOLE
+void console_send(const char* tx);
+#endif
 
+
+#ifdef _CONSOLE
 // Interupt routine to handle sending data to the console
 ISR(USART0_UDRE_vect){
 	// See if there's something to send
@@ -105,20 +99,15 @@ ISR(USART0_UDRE_vect){
 
 	//   If we're at the end               Or the next character is null
 	if ((serial_console.tx_pos > SERIAL_CONSOLE_TXBUF) | (serial_console.tx_buff[serial_console.tx_pos] == '\0')) {
-		serial_console.tx_pos=0;			// Reset to start of string
+		serial_console.tx_pos=0;	// Reset to start of string
 		UCSR0B &= ~(1<<UDRIE0);		// Clear Transmit interrupt
 		
 	}
 }
+#endif
 
-// Reset the RX Buffer
-void serial_rx_reset(struct serial_t *serial, uint8_t bufflen){
-	// TODO It might be beneficial to store the buffer length in the struct
-	serial->rx_ready=false;
-	serial->rx_pos=0;
-	memset(serial->rx_buff,0,bufflen+1);
-}
 
+#ifdef _CONSOLE
 // Interupt routine to handle receiving data from the console
 ISR(USART0_RX_vect){
 	char data = UDR0;
@@ -150,9 +139,10 @@ ISR(USART0_RX_vect){
 	//serial_console.error |= ERR_RX_NOTREADY;
 	//PORTA ^= (1<<2);	// Toggle LED
 }
+#endif
 
-#ifdef _GPS
 		//serial_gps.error |=ERR_TX_OVERFLOW;
+#ifdef _GPS
 // GPS UART (rx)
 ISR(USART1_RX_vect){
 	static char buff[SERIAL_GPS_RXBUF+1];
@@ -170,7 +160,6 @@ ISR(USART1_RX_vect){
 	} else {
 		buff[pos++]=data;
 		if (SERIAL_GPS_RXBUF == pos ){		// Buffer full
-			//console_send("GPS rx Buffer overflow\r\n");	// TODO More hang risk
 			buff[pos]='\0';
 			serial_gps.error |=ERR_RX_OVERFLOW;
 			ready=true;
@@ -183,7 +172,6 @@ ISR(USART1_RX_vect){
 			serial_gps.rx_ready=true;
 		} else {
 			serial_gps.error |=ERR_RX_NOTREADY;
-			//console_send("GPS buffer not ready for update\r\n");	// TODO more Hang risk
 		}
 		pos=0;
 	}
@@ -193,8 +181,8 @@ ISR(USART1_RX_vect){
 int main(void){
 #ifdef _CONSOLE
 	// TODO We could change malloc to alloca
-	serial_console.tx_buff=malloc(sizeof(char) * (SERIAL_CONSOLE_TXBUF+1));
-	serial_console.rx_buff=malloc(sizeof(char) * (SERIAL_CONSOLE_RXBUF+1));
+	serial_console.tx_buff=alloca(sizeof(char) * (SERIAL_CONSOLE_TXBUF+1));
+	serial_console.rx_buff=alloca(sizeof(char) * (SERIAL_CONSOLE_RXBUF+1));
 	// TODO We should check the malloc works
 	memset(serial_console.tx_buff,0,SERIAL_CONSOLE_TXBUF+1);
 	serial_console.tx_pos = 0;
@@ -203,8 +191,8 @@ int main(void){
 
 #ifdef _GPS
 	// TODO We could change malloc to alloca
-	serial_gps.tx_buff=malloc(sizeof(char) * (SERIAL_GPS_TXBUF+1));
-	serial_gps.rx_buff=malloc(sizeof(char) * (SERIAL_GPS_RXBUF+1));
+	serial_gps.tx_buff=alloca(sizeof(char) * (SERIAL_GPS_TXBUF+1));
+	serial_gps.rx_buff=alloca(sizeof(char) * (SERIAL_GPS_RXBUF+1));
 
 	// TODO We should check the malloc works
 	memset(serial_gps.tx_buff,0,SERIAL_GPS_TXBUF+1);
@@ -264,10 +252,11 @@ int main(void){
 	// Main Loop
 	while(1) {
 		if (serial_gps.rx_ready){
+#ifdef _GPS_PRINT
 			snprintf(buff,SERIAL_CONSOLE_TXBUF+1,"GPS: %s\r\n",serial_gps.rx_buff);
 			console_send(buff);
+#endif
 			serial_rx_reset(&serial_gps, SERIAL_GPS_RXBUF);
-			buff[0]='\0';
 		}
 
 		if (serial_console.error > 0){
@@ -282,7 +271,6 @@ int main(void){
 
 			serial_console.error=0;
 			console_send(buff);
-			buff[0] = '\0';
 		}
 
 		if (serial_gps.error > 0){
@@ -297,8 +285,8 @@ int main(void){
 
 			serial_gps.error=0;
 			console_send(buff);
-			buff[0] = '\0';
 		}
+
 
 		_delay_ms(RX_DELAY);
 
@@ -314,11 +302,26 @@ int main(void){
 
 			/* If it is a valid packet then send on serial */
 			if (p != NULL) {
-				*++p = '\0';
+				*(p+1) = '\0';
 				sprintf(buff,"rx: %s|%d\r\n", packet_buf, lastrssi);
 				console_send(buff);
 			}
+			if ((strlen(packet_buf) + strlen(NODENAME)) < RFM69_MAX_MESSAGE_LEN) {
+				if (packet_buf[0] - '0' > 0) {
+					packet_buf[0]--;
+					if (strstr(packet_buf,NODENAME) == NULL){
+						*p = '\0';
+						sprintf(buff,"tx: %s,%s]", packet_buf, NODENAME);
+						rf69_send((rfm_reg_t *)&buff[4], strlen(buff), RFM_POWER);
+
+						strcat(buff,"\r\n");
+						console_send(buff);
+					}
+				}
+			}
 		}
+
+		// TODO Handle Console input. In particular allow sending custom messages
 
 		if ( count_tx++ > (((uint16_t)TX_FREQ * 1000) / RX_DELAY)){
 			// TODO, Build up the string a bit at a time, only add fields if they're good
@@ -326,14 +329,17 @@ int main(void){
 			rfm_status_t temp_status;
 			temp_status = rf69_read_temp(&temp);
 
+			// TODO, Add location more often if over a certain height, or speed is higher
 			if (('a' == sequence) || ('z' == sequence)){
-				sprintf(buff,"tx: %d%cL%s,%s,%s[MA4]\r\n",repeat,sequence++,latitude, longitude, altitude);
+				sprintf(buff,"tx: %d%cL%s,%s,%s[%s]",repeat,sequence++,latitude, longitude, altitude,NODENAME);
 			} else {
-				sprintf(buff,"tx: %d%cT%d[MA4]\r\n",repeat,sequence++,temp);
+				sprintf(buff,"tx: %d%cT%d[%s]",repeat,sequence++,temp,NODENAME);
 			}
 			
+			rf69_send((rfm_reg_t *)&buff[4], strlen(buff), RFM_POWER);
+
+			strcat(buff,"\r\n");
 			console_send(buff);
-			//console_send("tx: triggered\r\n");
 
 			if (sequence>'z') sequence='b';
 			count_tx=0;
@@ -341,10 +347,37 @@ int main(void){
 
 		if ( count_blink++ > (((uint16_t)BLINK_FREQ * 1000) / RX_DELAY)){
 			PORTA ^= (1<<1);
-			//console_send(".");
 			count_blink=0;
 		}
 	}
 }
+
+// Reset the RX Buffer
+void serial_rx_reset(struct serial_t *serial, uint8_t bufflen){
+	// TODO It might be beneficial to store the buffer length in the struct
+	serial->rx_ready=false;
+	serial->rx_pos=0;
+	memset(serial->rx_buff,0,bufflen+1);
+}
+
+#ifdef _CONSOLE
+/* Send data to the Serial Console */
+// TODO Can we make this generic so it can be used with both USARTs ?
+void console_send(const char* tx){
+	if (SERIAL_CONSOLE_TXBUF < strlen(tx)){
+		serial_console.error |= ERR_TX_OVERFLOW;
+	} else {
+ 
+		// Wait until the the buffer is free
+		// TODO, this causes issues if console_send is called from an ISR
+		// If we changed to a circular buffer we might not need to wait if there's space
+		while (serial_console.tx_pos != 0)
+			_delay_ms(1);
+
+		strncpy(serial_console.tx_buff,tx,SERIAL_CONSOLE_TXBUF);
+		UCSR0B |= (1<<UDRIE0);		// Enable Transmit interrupt
+	}
+}
+#endif
 
 //#define HEX2INT(x) (x > '9')? (x &~ 0x20) - 'A' + 10: (x - '0')
