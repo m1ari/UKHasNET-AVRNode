@@ -2,6 +2,7 @@
 #MCU = atmega32u2
 #MCU = atmega168a
 MCU = atmega164p
+#MCU = atmega328p
 
 # Clock Speed
 CLOCK = 8000000UL
@@ -36,6 +37,7 @@ HEX_EEPROM_FLAGS += --change-section-lma .eeprom=0 --no-change-warnings
 .PHONY: all
 all:
 	@echo "Use make PROJECT where project is one of:"
+	@echo "  gps-repeater"
 	@echo "  door-led"
 	@echo "  gps-isr-test"
 	@echo "  rfm-test"
@@ -55,27 +57,36 @@ ukhasnet-rfm69.o: ukhasnet-rfm69/ukhasnet-rfm69.c
 %.o: %.c
 	$(CC) -mmcu=$(MCU) -DF_CPU=$(CLOCK) $(CFLAGS) -c  $<
 
+.PHONY: gps-repeater
+gps-repeater: gps-repeater.elf gps-repeater.hex gps-repeater.eep
+	sudo avrdude -c avrispmkii -p $(MCU) -P usb -U flash:w:$@.hex
+	avr-size -C --mcu=${MCU} ${@}.elf
+
 .PHONY: door-led
 door-led: door-led.elf door-led.hex door-led.eep
-	sudo avrdude -c avrispmkii -p m164p -P usb -U flash:w:$@.hex
+	sudo avrdude -c avrispmkii -p $(MCU) -P usb -U flash:w:$@.hex
+	avr-size -C --mcu=${MCU} ${@}.elf
 
 .PHONY: gps-isr-test
 gps-isr-test: gps-isr-test.elf gps-isr-test.hex gps-isr-test.eep
-	sudo avrdude -c avrispmkii -p m164p -P usb -U flash:w:$@.hex
+	sudo avrdude -c avrispmkii -p $(MCU) -P usb -U flash:w:$@.hex
+	avr-size -C --mcu=${MCU} ${@}.elf
 
 .PHONY: rfm-test
 rfm-test: rfm-test.elf rfm-test.hex rfm-test.eep
-	sudo avrdude -c avrispmkii -p m164p -P usb -U flash:w:$@.hex
+	sudo avrdude -c avrispmkii -p $(MCU) -P usb -U flash:w:$@.hex
+	avr-size -C --mcu=${MCU} ${@}.elf
 
 
 ##Link
-door-led.elf: door-led.o
+gps-repeater.elf: gps-repeater.o ukhasnet-rfm69.o spi_conf.o
 	 $(CC) -mmcu=$(MCU)  $(LDFLAGS) $^ -o $@
-gps-isr-test.elf: gps-isr-test.o
-	 $(CC) -mmcu=$(MCU)  $(LDFLAGS) $^ -o $@
+
 rfm-test.elf: rfm-test.o ukhasnet-rfm69.o spi_conf.o
 	 $(CC) -mmcu=$(MCU)  $(LDFLAGS) $^ -o $@
 
+%.elf: %.o
+	 $(CC) -mmcu=$(MCU)  $(LDFLAGS) $^ -o $@
 
 %.hex: %.elf
 	avr-objcopy -O ihex $(HEX_FLASH_FLAGS)  $< $@
