@@ -19,7 +19,7 @@
 #define GPS_RXBUF 80			// Size of Buffer for GPS Receive
 
 #define BLINK_FREQ	1		// How often to Blink the LED (seconds)
-#define TX_FREQ		60		// How often to transmit (seconds)
+#define TX_FREQ		5		// How often to transmit (seconds)
 #define RX_DELAY	30		// Delay in main loop (ms)
 
 #define HEX2INT(x) (x > '9')? (x &~ 0x20) - 'A' + 10: (x - '0')
@@ -29,6 +29,10 @@
 #include <util/delay.h>
 #include <string.h>
 #include <stdio.h>
+
+const char latitude[]="50.94404";
+const char longitude[]="-1.40552";
+const char altitude[]="100";
 
 char serial_tx[SERIAL_TXBUF+1];
 uint8_t serial_tx_pos=0;
@@ -69,7 +73,7 @@ ISR(USART0_UDRE_vect){
 // PC UART(rx)
 ISR(USART0_RX_vect){
 	char data = UDR0;
-	static char buff[2];
+	char buff[2];
 	memset(buff,0,2);
 	PORTA ^= (1<<2);	// Toggle LED
 	switch (data){
@@ -84,7 +88,7 @@ ISR(USART0_RX_vect){
 // GPS UART (rx)
 ISR(USART1_RX_vect){
 	uint8_t data = UDR1;
-	static char buff[2];
+	char buff[2];
 	memset(buff,0,2);
 	buff[0]=data;
 	serial_send(buff);
@@ -137,6 +141,8 @@ int main(void){
 
 	char buff[SERIAL_TXBUF+1];
 
+	int repeat=3;
+	char sequence='a';
 
 	uint16_t count_blink=0;
 	uint16_t count_tx=0;
@@ -164,13 +170,27 @@ int main(void){
 		}
 
 		if ( count_tx++ > (((uint16_t)TX_FREQ * 1000) / RX_DELAY)){
-			serial_send("tx: triggered\r\n");
+			// TODO, Build up the string a bit at a time, only add fields if they're good
+			int8_t temp;
+			rfm_status_t temp_status;
+			temp_status = rf69_read_temp(&temp);
+
+			if (('a' == sequence) || ('z' == sequence)){
+				sprintf(buff,"tx: %d%cL%s,%s,%s[MA4]\r\n",repeat,sequence++,latitude, longitude, altitude);
+			} else {
+				sprintf(buff,"tx: %d%cT%d[MA4]\r\n",repeat,sequence++,temp);
+			}
+			
+			serial_send(buff);
+			//serial_send("tx: triggered\r\n");
+
+			if (sequence>'z') sequence='b';
 			count_tx=0;
 		}
 
 		if ( count_blink++ > (((uint16_t)BLINK_FREQ * 1000) / RX_DELAY)){
 			PORTA ^= (1<<1);
-			serial_send(".");
+			//serial_send(".");
 			count_blink=0;
 		}
 	}

@@ -67,7 +67,23 @@ struct serial_t serial_gps;
 const char latitude[]="50.94404";
 const char longitude[]="-1.40552";
 const char altitude[]="100";
+//$GPGGA,033345.00,5056.65294,N,00124.32630,W,1,04,1.83,83.1,M,47.0,M,,*72
+struct gps_gpgga_t {
+	uint16_t time;
+	float latitude;
+	float longitude;
+};
 
+//$GPRMC,033345.00,A,5056.65294,N,00124.32630,W,4.656,60.48,300516,,,A*4D
+struct gps_gprmc_t {
+	uint16_t time;
+	float latitude;
+	float longitude;
+};
+
+struct gps_gpgga_t gps_decode_gpgga(char* nmea);
+struct gps_gprmc_t gps_decode_gprmc(char* nmea);
+bool gps_check_checksum(char* nmea);
 
 /*
 struct location_t {
@@ -249,6 +265,9 @@ int main(void){
 	uint16_t count_blink=0;
 	uint16_t count_tx=0;
 
+	struct gps_gpgga_t gps_gpgga;
+	struct gps_gprmc_t gps_gprmc;
+
 	// Main Loop
 	while(1) {
 		if (serial_gps.rx_ready){
@@ -256,6 +275,13 @@ int main(void){
 			snprintf(buff,SERIAL_CONSOLE_TXBUF+1,"GPS: %s\r\n",serial_gps.rx_buff);
 			console_send(buff);
 #endif
+			if (strncmp(serial_gps.rx_buff,"$GPGGA",6)==0){
+				gps_gpgga = gps_decode_gpgga(serial_gps.rx_buff);
+			} else if(strncmp(serial_gps.rx_buff,"$GPRMC",6)==0){
+				gps_gprmc = gps_decode_gprmc(serial_gps.rx_buff);
+			}
+
+
 			serial_rx_reset(&serial_gps, SERIAL_GPS_RXBUF);
 		}
 
@@ -380,4 +406,34 @@ void console_send(const char* tx){
 }
 #endif
 
+struct gps_gpgga_t gps_decode_gpgga(char* gps_string){
+	if (gps_check_checksum(gps_string)){
+
+
+	} else {
+		console_send("GPGGA: Checksum Error\r\n");
+	}
+}
+struct gps_gprmc_t gps_decode_gprmc(char* gps_string){
+	if (gps_check_checksum(gps_string)){
+
+
+	} else {
+		console_send("GPRMC: Checksum Error\r\n");
+	}
+}
+bool gps_check_checksum(char* nmea){
+	int nmea_len=strcspn(nmea,"*");
+	int csum=0;
+	int i;
+	for (i=1; i<nmea_len; i++){
+		csum ^= nmea[i];
+	}
+	int nmea_csum=strtol(&nmea[nmea_len+1],NULL,16);
+	if (csum==nmea_csum){
+		return(true);
+	}else{
+		return(false);
+	}
+}
 //#define HEX2INT(x) (x > '9')? (x &~ 0x20) - 'A' + 10: (x - '0')
